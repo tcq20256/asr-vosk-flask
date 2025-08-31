@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>中文离线识别 · Vosk + Flask</title>
+<style>
+  body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:16px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;align-items:center}
+  button{padding:8px 12px;border-radius:10px;border:1px solid #ccc;background:#fff;cursor:pointer}
+  #out{white-space:pre-wrap;border:1px solid #ddd;border-radius:10px;padding:10px;min-height:80px;background:#fafafa}
+  .meta{color:#555;font-size:14px}
+  .note{color:#444;margin:6px 0 12px}
+  .grid{display:grid;grid-template-columns: 180px 1fr;gap:6px 12px}
+  .k{color:#666}
+  .v{color:#111}
+</style>
+</head>
+<body>
+<h2>🎤 中文离线识别（上传并可直接播放）</h2>
+<p id="limitNote" class="note">📎 最大上传：<b id="maxTip">25 MB</b>。超过将被拒绝。</p>
+
+<div class="row">
+  <input id="file" type="file" accept="audio/*">
+  <button id="uploadBtn">上传识别</button>
+</div>
+
+<div class="row" id="playerRow" style="display:none">
+  <audio id="player" controls preload="metadata"></audio>
+  <span id="meta" class="meta"></span>
+</div>
+
+<h3 style="margin:14px 0 6px">📝 识别结果</h3>
+<div id="textOut" style="border:1px solid #ddd;border-radius:10px;padding:10px;min-height:60px;background:#fafafa">等待识别…</div>
+
+<h3 style="margin:14px 0 6px">📊 指标</h3>
+<div id="stats" class="grid">
+  <div class="k">端到端耗时</div><div class="v" id="latency">-</div>
+  <div class="k">转码耗时</div><div class="v" id="decode">-</div>
+  <div class="k">识别耗时</div><div class="v" id="recognize">-</div>
+  <div class="k">CPU 时间</div><div class="v" id="cpuTime">-</div>
+  <div class="k">CPU 占比(估算)</div><div class="v" id="cpuPct">-</div>
+  <div class="k">RSS 内存</div><div class="v" id="rss">-</div>
+  <div class="k">RSS 增量</div><div class="v" id="rssDelta">-</div>
+  <div class="k">音频时长</div><div class="v" id="aSec">-</div>
+  <div class="k">文件大小</div><div class="v" id="fSize">-</div>
+  <div class="k">前端往返耗时</div><div class="v" id="rt">-</div>
+</div>
+
+<script>
+const outText = document.getElementById('textOut');
+const file = document.getElementById('file');
+const uploadBtn = document.getElementById('uploadBtn');
+const playerRow = document.getElementById('playerRow');
+const player = document.getElementById('player');
+const meta = document.getElementById('meta');
+const maxTip = document.getElementById('maxTip');
+
+const el = id => document.getElementById(id);
+
+// 指标元素
+const E = {
+  latency: el('latency'),
+  decode: el('decode'),
+  recognize: el('recognize'),
+  cpuTime: el('cpuTime'),
+  cpuPct: el('cpuPct'),
+  rss: el('rss'),
+  rssDelta: el('rssDelta'),
+  aSec: el('aSec'),
+  fSize: el('fSize'),
+  rt: el('rt'),
+};
+
+let objectURL = null;
+let MAX_MB = 25; // 会在 init() 里由 /api/health 覆盖
+let MAX_BYTES = MAX_MB * 1024 * 1024;
+
+function bytesToSize(bytes){
+  if(bytes === undefined || bytes === null) return '';
+  const k = 1024, sizes = ['B','KB','MB','GB'];
+  const i = Math.min(sizes.length-1, Math.floor(Math.log(bytes)/Math.log(k)));
+  return (bytes/Math.pow(k,i)).toFixed(i ? 1 : 0) + ' ' + sizes[i];
+}
+
+function formatSec(s){
+  if(isNaN(s)) return '';
+  const m = Math.floor(s/60), sec = Math.round(s%60);
+  return `${m}:${sec.toString().padStart(2,'0')}`;
+}
+
+function setStats(obj){
+  E.latency.textContent  = obj.latency_ms != null ? `${obj.latency_ms} ms` : '-';
+  E.decode.textContent   = obj.decode_ms  != null ? `${obj.decode_ms} ms` : '-';
+  E.recognize.textContent= obj.recognize_ms!= null ? `${obj.recognize_ms} ms` : '-';
+  E.cpuTime.textContent  = obj.cpu_time_ms!= null ? `${obj.cpu_time_ms} ms` : '-';
+  E.cpuPct.textContent   = obj.cpu_percent_est!= null ? `${obj.cpu_percent_est}%` : '-';
+  E.rss.textContent      = obj.rss_mb     != null ? `${obj.rss_mb} MB` : '-';
+  E.rssDelta.textContent = obj.rss_delta_mb!= null ? `${obj.rss_delta_mb} MB` : '-';
+  E.aSec.textContent     = obj.audio_seconds!= null ? `${obj.audio_seconds}s` : '-';
+  const fb = obj.file_bytes;
+  E.fSize.textContent    = fb != null ? bytesToSize(fb) : (file.files[0] ? bytesToSize(file.files[0].size) : '-');
+}
+
+file.addEventListener('change', () => {
+  const f = file.files[0];
+  if(!f) return;
+
+  // 客户端超限拦截
+  if (f.size > MAX_BYTES) {
+    alert(`文件过大：${bytesToSize(f.size)}，最大允许 ${MAX_MB} MB`);
+    file.value = '';
+    return;
+  }
+
+  // 释放旧 URL
+  if(objectURL){ URL.revokeObjectURL(objectURL); objectURL = null; }
+
+  // 创建新的临时播放地址
+  objectURL = URL.createObjectURL(f);
+  player.src = objectURL;
+  playerRow.style.display = 'flex';
+  meta.textContent = `${f.name} · ${bytesToSize(f.size)}`;
+  player.onloadedmetadata = () => {
+    meta.textContent = `${f.name} · ${bytesToSize(f.size)} · 时长 ${formatSec(player.duration)}`;
+  };
+});
+
+async function postBlob(blob){
+  const fd = new FormData();
+  fd.append('audio', blob, blob.name || 'upload.wav');
+
+  outText.textContent = '⏳ 正在识别，请稍候…';
+  setStats({}); // 清空
+
+  const t0 = performance.now();
+  try{
+    const r = await fetch('/api/stt', {method:'POST', body:fd});
+    const j = await r.json();
+    const t1 = performance.now();
+
+    if (j.error) {
+      outText.textContent = '❌ ' + j.error;
+      E.rt.textContent = `${Math.round(t1 - t0)} ms`;
+      return;
+    }
+
+    // 文本
+    outText.textContent = j.text || '(空)';
+
+    // 指标
+    setStats(j);
+    E.rt.textContent = `${Math.round(t1 - t0)} ms`;
+  }catch(e){
+    outText.textContent = '❌ 上传或识别失败：' + (e.message || e);
+  }
+}
+
+uploadBtn.onclick = async () => {
+  if(!file.files[0]) return alert('先选择音频文件');
+  if (file.files[0].size > MAX_BYTES) {
+    return alert(`文件过大：${bytesToSize(file.files[0].size)}，最大允许 ${MAX_MB} MB`);
+  }
+  await postBlob(file.files[0]);
+};
+
+// 初始化：从后端拉取 max_file_mb
+async function init(){
+  try{
+    const r = await fetch('/api/health');
+    if(r.ok){
+      const h = await r.json();
+      if (typeof h.max_file_mb === 'number') {
+        MAX_MB = h.max_file_mb;
+        MAX_BYTES = MAX_MB * 1024 * 1024;
+        maxTip.textContent = `${MAX_MB} MB`;
+      }
+    }
+  }catch(_){}
+}
+init();
+
+// 页面卸载时清理 URL
+window.addEventListener('beforeunload', () => {
+  if(objectURL) URL.revokeObjectURL(objectURL);
+});
+</script>
+</body>
+</html>
