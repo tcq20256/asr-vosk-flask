@@ -1,0 +1,16 @@
+autoOpen: false # 打开应用时是否自动开启所有下方apps的预览
+apps:
+  - port: 3000                # Flask 默认端口
+    run: |
+      # 安装 ffmpeg（Ubuntu）
+      apt-get update && apt-get install -y ffmpeg
+
+      # 创建并激活 conda 环境
+      conda create -n asr python=3.9 -y && \
+      conda activate asr && \
+      pip install -r requirements.txt && \
+      python app.py
+    root: /   # 你的项目目录
+    name: asr-flask-app
+    description: Vosk 中文语音识别 Flask 服务
+    autoOpen: false
