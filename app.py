@@ -206,4 +206,4 @@ def stt():
 
 if __name__ == "__main__":
     # 低配机：不开 debug，单进程
-    app.run(host="0.0.0.0", port=5050, threaded=False)
+    app.run(host="0.0.0.0", port=5000, threaded=False)
