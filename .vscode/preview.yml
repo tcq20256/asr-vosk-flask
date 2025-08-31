@@ -8,9 +8,9 @@ apps:
       # 创建并激活 conda 环境
       conda create -n asr python=3.9 -y && \
       conda activate asr && \
-      pip install -r requirements.txt && \
-      python app.py
+      pip install -r /workspace/requirements.txt && \
+      python /workspace/app.py
     root: /   # 你的项目目录
     name: asr-flask-app
     description: Vosk 中文语音识别 Flask 服务
-    autoOpen: false
+    autoOpen: true
