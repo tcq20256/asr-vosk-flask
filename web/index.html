@@ -14,10 +14,11 @@
   .grid{display:grid;grid-template-columns: 180px 1fr;gap:6px 12px}
   .k{color:#666}
   .v{color:#111}
+  .footer{margin-top:20px;font-size:14px;color:#555}
 </style>
 </head>
 <body>
-<h2>🎤 中文离线识别（上传并可直接播放）</h2>
+<h2>🎤 中文离线识别</h2>
 <p id="limitNote" class="note">📎 最大上传：<b id="maxTip">25 MB</b>。超过将被拒绝。</p>
 
 <div class="row">
@@ -185,5 +186,12 @@ window.addEventListener('beforeunload', () => {
   if(objectURL) URL.revokeObjectURL(objectURL);
 });
 </script>
+
+<!-- 开源项目地址 -->
+<p class="footer">
+  🔗 开源项目地址：
+  <a href="https://github.com/tcq20256/asr-vosk-flask" target="_blank">tcq20256/asr-vosk-flask</a>
+</p>
+
 </body>
 </html>
