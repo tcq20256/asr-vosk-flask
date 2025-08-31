@@ -1,16 +1,27 @@
 autoOpen: false # 打开应用时是否自动开启所有下方apps的预览
 apps:
-  - port: 3000                # Flask 默认端口
+  - port: 5000                # Flask 默认端口
     run: |
-      # 安装 ffmpeg（Ubuntu）
-      apt-get update && apt-get install -y ffmpeg
+      # ========== 安装系统依赖 ==========
+      apt-get update && apt-get install -y ffmpeg unzip wget
 
-      # 创建并激活 conda 环境
-      conda create -n asr python=3.9 -y && \
-      conda activate asr && \
-      pip install -r /workspace/requirements.txt && \
-      python /workspace/app.py
-    root: /   # 你的项目目录
+      # ========== 准备模型 ==========
+      mkdir -p /workspace/models
+      if [ ! -d /workspace/models/vosk-model-small-cn-0.22 ]; then
+        echo "📥 下载并解压 Vosk 中文模型..."
+        wget -O /workspace/models/vosk-model-small-cn-0.22.zip "https://hf-mirror.com/datasets/datxy/file/resolve/main/models/vosk-model-small-cn-0.22.zip?download=true"
+        unzip -q /workspace/models/vosk-model-small-cn-0.22.zip -d /workspace/models/
+      else
+        echo "✅ 模型已存在，跳过下载"
+      fi
+
+      # ========== 启动 Flask ==========
+      cd /workspace
+      conda create -n asr python=3.9 -y
+      conda activate asr
+      pip install -r requirements.txt
+      python app.py
+    root: /
     name: asr-flask-app
     description: Vosk 中文语音识别 Flask 服务
     autoOpen: true
